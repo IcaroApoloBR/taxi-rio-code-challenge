@@ -35,10 +35,14 @@ export function PassengerLogin({ onSuccess, onDriver }: { onSuccess: (session: S
         <input id="email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required />
         <label htmlFor="phone">Telefone</label>
         <input id="phone" inputMode="tel" autoComplete="tel" placeholder="(XX) XXXXX-XXXX" value={phone} onChange={(event) => setPhone(event.target.value)} required />
-        <button className="cta" type="submit" disabled={busy}>
+        <button className="cta" type="submit" disabled={busy} aria-busy={busy}>
           {busy ? 'Entrando...' : 'Entrar'}
         </button>
-        {error ? <p className="form-error">{error}</p> : null}
+        {error ? (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        ) : null}
         <p className="fine">Caso não tenha uma conta, use os campos acima para criá-la e cuidaremos do resto.</p>
         <button
           className="link-button"
@@ -156,6 +160,17 @@ export function PassengerApp({ session, onLogout }: { session: Session; onLogout
     setScreen('request');
   }
 
+  function openListed(item: Ride) {
+    setRide(item);
+    if (item.status === 'COMPLETED' && item.ratingScore === null) {
+      setScreen('receipt');
+      return;
+    }
+    if (item.status === 'REQUESTED' || item.status === 'ACCEPTED' || item.status === 'IN_PROGRESS') {
+      setScreen('ride');
+    }
+  }
+
   async function openQuote() {
     setBusy(true);
     try {
@@ -269,10 +284,14 @@ export function PassengerApp({ session, onLogout }: { session: Session; onLogout
             <i className="square" />
             <input aria-label="Destino" value={destination} onChange={(event) => setDestination(event.target.value)} />
           </label>
-          <button className="cta" type="button" disabled={busy || !pickup.trim() || !destination.trim()} onClick={() => void openQuote()}>
+        </section>
+      ) : null}
+      {screen === 'request' ? (
+        <div className="actions">
+          <button className="cta" type="button" disabled={busy || !pickup.trim() || !destination.trim()} aria-busy={busy} onClick={() => void openQuote()}>
             {busy ? 'Calculando...' : 'Avançar'}
           </button>
-        </section>
+        </div>
       ) : null}
 
       {screen === 'quote' && quote ? (
@@ -309,7 +328,12 @@ export function PassengerApp({ session, onLogout }: { session: Session; onLogout
                   <td>{option.driversAvailable}</td>
                   <td>{money(option.amountCents)}</td>
                   <td>
-                    <button type="button" disabled={busy} onClick={() => void choose(option.discountPercent)}>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      aria-label={`Escolher ${option.discountPercent === 0 ? 'a tarifa normal' : `desconto de ${option.discountPercent}%`} por ${money(option.amountCents)}`}
+                      onClick={() => void choose(option.discountPercent)}
+                    >
                       OK
                     </button>
                   </td>
@@ -335,7 +359,9 @@ export function PassengerApp({ session, onLogout }: { session: Session; onLogout
       {screen === 'ride' && ride ? (
         <section className="stack ride-screen">
           <RouteMap from={ride.pickup} to={ride.destination} taxiAt={ride.status === 'IN_PROGRESS' ? 'middle' : 'start'} />
-          <p className="status-line">{statusLabel(ride.status)}</p>
+          <p className="status-line" role="status">
+            {statusLabel(ride.status)}
+          </p>
           {ride.driverName ? (
             <article className="driver-card">
               <div>
@@ -368,6 +394,10 @@ export function PassengerApp({ session, onLogout }: { session: Session; onLogout
             <i className="square" />
             {ride.destination}
           </p>
+        </section>
+      ) : null}
+      {screen === 'ride' && ride ? (
+        <div className="actions">
           <div className="pair">
             {canCancel ? (
               <button className="danger" type="button" disabled={busy} onClick={() => void cancel()}>
@@ -380,7 +410,7 @@ export function PassengerApp({ session, onLogout }: { session: Session; onLogout
               Mensagem
             </button>
           </div>
-        </section>
+        </div>
       ) : null}
 
       {screen === 'chat' && ride ? (
@@ -430,30 +460,35 @@ export function PassengerApp({ session, onLogout }: { session: Session; onLogout
             <h3>Avaliar corrida</h3>
             <p>{ride.driverName}</p>
             <Stars value={stars} onChange={setStars} />
-            <textarea value={comment} onChange={(event) => setComment(event.target.value)} maxLength={280} placeholder="Comentário" />
+            <label className="sr-only" htmlFor="comment">
+              Comentário
+            </label>
+            <textarea id="comment" value={comment} onChange={(event) => setComment(event.target.value)} maxLength={280} placeholder="Comentário" />
           </article>
-          <button className="cta" type="button" disabled={busy} onClick={() => void finish(false)}>
-            Finalizar
+        </section>
+      ) : null}
+      {screen === 'receipt' && ride ? (
+        <div className="actions">
+          <button className="cta" type="button" disabled={busy} aria-busy={busy} onClick={() => void finish(false)}>
+            {stars > 0 ? 'Enviar avaliação' : 'Finalizar'}
           </button>
           <button className="link-button" type="button" disabled={busy} onClick={() => void finish(true)}>
             Não quero avaliar
           </button>
-        </section>
+        </div>
       ) : null}
 
       {screen === 'history' ? (
         <section className="stack history">
-          <h2>Histórico de corridas</h2>
-          {history.filter((item) => item.status === 'COMPLETED' || item.status === 'CANCELLED').length === 0 ? (
-            <p className="fine">Nenhuma corrida encerrada.</p>
-          ) : null}
-          {history
-            .filter((item) => item.status === 'COMPLETED' || item.status === 'CANCELLED')
-            .map((item) => (
-              <article key={item.id} className="card history-card">
+          <h2>Minhas corridas</h2>
+          {history.length === 0 ? <p className="fine">Nenhuma corrida deste passageiro.</p> : null}
+          {history.map((item) => {
+            const canOpen = item.status !== 'CANCELLED' && !(item.status === 'COMPLETED' && item.ratingScore !== null);
+            const body = (
+              <>
                 <p>
                   <strong>{whenLabel(item.createdAt)}</strong>
-                  <span>{item.status === 'CANCELLED' ? 'Cancelada' : `${money(item.amountCents)} · ${paymentLabel(item.paymentMethod)}`}</span>
+                  <span>{statusLabel(item.status)}</span>
                 </p>
                 <p className="route-line">
                   <i className="dot" />
@@ -463,8 +498,24 @@ export function PassengerApp({ session, onLogout }: { session: Session; onLogout
                   <i className="square" />
                   {item.destination}
                 </p>
+                <p className="money-line">
+                  <span>{paymentLabel(item.paymentMethod)}</span>
+                  <span>{money(item.amountCents)}</span>
+                </p>
+              </>
+            );
+            return (
+              <article key={item.id} className="card history-card">
+                {canOpen ? (
+                  <button type="button" onClick={() => openListed(item)}>
+                    {body}
+                  </button>
+                ) : (
+                  body
+                )}
               </article>
-            ))}
+            );
+          })}
         </section>
       ) : null}
 
@@ -477,7 +528,7 @@ export function PassengerApp({ session, onLogout }: { session: Session; onLogout
               setScreen('history');
             }}
           >
-            Histórico de corridas
+            Minhas corridas
           </button>
           <button
             type="button"

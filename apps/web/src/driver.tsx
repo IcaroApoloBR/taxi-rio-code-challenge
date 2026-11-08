@@ -31,10 +31,14 @@ export function DriverLogin({ onSuccess, onPassenger }: { onSuccess: (session: S
         <input id="ratr" inputMode="numeric" autoComplete="username" value={ratr} onChange={(event) => setRatr(event.target.value)} required />
         <label htmlFor="senha">Senha</label>
         <input id="senha" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
-        <button className="cta" type="submit" disabled={busy}>
+        <button className="cta" type="submit" disabled={busy} aria-busy={busy}>
           {busy ? 'Entrando...' : 'Entrar'}
         </button>
-        {error ? <p className="form-error light">{error}</p> : null}
+        {error ? (
+          <p className="form-error light" role="alert">
+            {error}
+          </p>
+        ) : null}
         <button
           className="link-button light"
           type="button"
@@ -131,10 +135,10 @@ export function DriverApp({ session, onLogout }: { session: Session; onLogout: (
     setNotice(explain(cause));
   }
 
-  const offer =
-    availability === 'livre'
-      ? offers.find((ride) => !hidden.includes(ride.id) && ride.discountPercent <= maxDiscount && accepts[ride.paymentMethod])
-      : undefined;
+  const visibleOffers = offers.filter((ride) => !hidden.includes(ride.id));
+  const eligible = visibleOffers.filter((ride) => ride.discountPercent <= maxDiscount && accepts[ride.paymentMethod]);
+  const offer = availability === 'livre' ? eligible[0] : undefined;
+  const heldBack = availability === 'livre' && !active ? visibleOffers.length - eligible.length : 0;
 
   async function accept() {
     if (!offer) {
@@ -240,7 +244,11 @@ export function DriverApp({ session, onLogout }: { session: Session; onLogout: (
           <div className="free-readout">
             <p>Bandeira 2</p>
             <strong>até {maxDiscount}%</strong>
-            <small>Corridas acima deste desconto ficam ocultas.</small>
+            <small>
+              {heldBack > 0
+                ? `${heldBack} ${heldBack === 1 ? 'corrida fora' : 'corridas fora'} das preferências. Ajuste em Ocupado.`
+                : 'Nenhuma corrida aguardando.'}
+            </small>
           </div>
         ) : null}
         {availability === 'ocupado' && !active && !offer ? (
@@ -341,7 +349,12 @@ export function DriverApp({ session, onLogout }: { session: Session; onLogout: (
         </>
       ) : null}
       {!offer && !active ? (
-        <button className={`duty ${availability}`} type="button" onClick={() => setAvailability(availability === 'livre' ? 'ocupado' : 'livre')}>
+        <button
+          className={`duty ${availability}`}
+          type="button"
+          aria-pressed={availability === 'livre'}
+          onClick={() => setAvailability(availability === 'livre' ? 'ocupado' : 'livre')}
+        >
           <span>{availability === 'livre' ? '»' : '«'}</span>
           {availability === 'livre' ? 'Livre' : 'Ocupado'}
         </button>

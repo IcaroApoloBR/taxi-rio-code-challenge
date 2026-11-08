@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import passengerLogo from './assets/layoutPassenger/logo.webp';
 import driverLogo from './assets/layoutDriver/logo.webp';
 
@@ -62,9 +62,19 @@ export function Drawer({
   children: ReactNode;
   onClose: () => void;
 }) {
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
     <div className="backdrop" onClick={onClose}>
-      <nav className="drawer" onClick={(event) => event.stopPropagation()} aria-label="Menu">
+      <nav className="drawer" role="dialog" aria-modal="true" aria-label="Menu" onClick={(event) => event.stopPropagation()}>
         <p>{name}</p>
         <small>{detail}</small>
         {children}
@@ -124,8 +134,15 @@ export function Stars({ value, onChange }: { value: number; onChange: (value: nu
   return (
     <div className="stars" role="radiogroup" aria-label="Avaliação">
       {[1, 2, 3, 4, 5].map((score) => (
-        <button key={score} type="button" aria-checked={value === score} role="radio" onClick={() => onChange(score)}>
-          {score <= value ? '★' : '☆'}
+        <button
+          key={score}
+          type="button"
+          aria-checked={value >= score}
+          aria-label={`${score} de 5`}
+          role="radio"
+          onClick={() => onChange(score)}
+        >
+          <span aria-hidden="true">{score <= value ? '★' : '☆'}</span>
         </button>
       ))}
     </div>

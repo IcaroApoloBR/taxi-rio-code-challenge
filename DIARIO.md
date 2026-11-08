@@ -32,6 +32,12 @@
 - **Como investiguei:** o watch da API acusou um instante em que `cancel` ainda recebia `user.sub` depois que a assinatura passou a receber o ator. O arquivo foi salvo de novo e o Nest subiu com 0 erros.
 - **Aprendizado/decisão:** o token emitido usa a mesma chave RS256 dos tokens prontos. Cotação, mapa e chat permanecem ilustrativos.
 
+### 2026-11-08 17:57 — Revisão do fluxo na interface
+- **O que tentei:** conferir o caminho passageiro → motorista contra o enunciado e tirar o que escondia a ação.
+- **O que aconteceu:** a API já cobria criar, listar só as próprias, aceitar e avançar. A lista da interface mostrava só corridas encerradas, e o motorista ocultava ofertas fora do desconto sem dizer por quê.
+- **Como investiguei:** li o contrato e as telas. Ajustei a lista, o aviso do motorista, o foco visível e os botões principais fixos na base.
+- **Aprendizado/decisão:** mapa, tarifa e chat continuam ilustrativos. O que a etapa entrega é o fluxo autenticado da corrida.
+
 ## Observação
 
 Uma linha por ocorrência é suficiente. O valor deste documento está em mostrar evidências do processo de investigação, inclusive erros e decisões revertidas.
