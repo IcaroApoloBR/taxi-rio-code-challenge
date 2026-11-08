@@ -13,3 +13,4 @@ coverage/
 .vscode/*
 !.vscode/extensions.json
 private-keys/
+keys/jwt-private.pem
