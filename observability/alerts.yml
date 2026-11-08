@@ -1,0 +1,20 @@
+groups:
+  - name: corridas-service
+    rules:
+      - alert: ApiTargetDown
+        expr: up{job="api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API de corridas indisponível"
+          description: "Prometheus não consegue coletar métricas da API há mais de 2 minutos."
+
+      - alert: WorkerTargetDown
+        expr: up{job="worker"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worker de corridas indisponível"
+          description: "Prometheus não consegue coletar métricas do Worker há mais de 2 minutos."
