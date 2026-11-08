@@ -19,17 +19,19 @@ JWKS pode ser uma evolução, mas adiciona endpoint/discovery e rotação de cha
 Não confiar em `alg` escolhido livremente pelo token. Não registrar JWT completo em logs.
 
 ### Tokens de demonstração
-Gerar tokens de curta duração para:
+Gerar tokens para:
 - passageiro A;
 - passageiro B;
 - motorista A.
+
+`POST /api/auth/login` emite outro JWT RS256, com as mesmas claims e validade de 8 horas, usando a chave privada local. Não substitui um provedor de identidade: as contas de demonstração ficam na memória do processo.
 
 Chaves privadas e tokens de teste devem ser claramente identificados como locais/demonstração. Nunca usar chaves reais ou dados pessoais. A chave pública pode ser versionada se for explicitamente uma chave de teste; a privada pode ser gerada localmente por script e ignorada pelo Git.
 
 ## 2. Autorização
 
-- Passageiro: `POST /corridas`, `GET /corridas`, `GET /corridas/:id` somente próprias.
-- Motorista: `PATCH /corridas/:id/status`.
+- Passageiro: `POST /corridas`, `POST /corridas/cotacao`, `GET /corridas`, `GET /corridas/:id` somente próprias, cancelamento das próprias e avaliação depois de `COMPLETED`.
+- Motorista: `GET /corridas/disponiveis`, `GET /corridas/atribuida`, `PATCH /corridas/:id/status` e cancelamento da corrida que ele aceitou, antes de iniciar.
 - Perfil não autorizado: `403`.
 - Ausência ou invalidade de credencial: `401`.
 

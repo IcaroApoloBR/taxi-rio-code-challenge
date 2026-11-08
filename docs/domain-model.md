@@ -23,6 +23,7 @@ Estados mínimos:
 - `ACCEPTED`: motorista aceitou.
 - `IN_PROGRESS`: corrida iniciada.
 - `COMPLETED`: corrida finalizada.
+- `CANCELLED`: corrida cancelada pelo passageiro ou pelo motorista atribuído, antes de iniciar.
 
 Transições propostas:
 
@@ -30,7 +31,7 @@ Transições propostas:
 REQUESTED -> ACCEPTED -> IN_PROGRESS -> COMPLETED
 ```
 
-Transições reversas e estados de cancelamento ficam fora do escopo inicial, salvo se o enunciado ou a implementação exigir explicitamente. Uma transição inválida deve retornar `409 Conflict`.
+O passageiro pode cancelar em `REQUESTED` ou `ACCEPTED`. O motorista atribuído pode cancelar em `ACCEPTED`. O status vai para `CANCELLED` e a corrida para. Uma transição inválida deve retornar `409 Conflict`.
 
 ## 3. Regras de negócio
 

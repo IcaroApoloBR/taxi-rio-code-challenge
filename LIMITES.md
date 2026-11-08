@@ -1,14 +1,19 @@
 # LIMITES
 
+## Estado local atual
+
+- As corridas e as contas criadas no login vivem na memória do processo da API. Reiniciar apaga os dois. O MySQL ainda não é a fonte da verdade em execução.
+- RabbitMQ, outbox, MongoDB e Redis não foram validados neste ambiente porque o Docker não está disponível.
+
 ## Não implementado por decisão de escopo
 
 - Parte 3 — Kubernetes, Helm, Kustomize, probes, requests/limits e KEDA.
 - Matching real entre passageiros e motoristas.
-- Geolocalização, mapas, rotas e cálculo de distância.
-- Tarifação, bandeiras, descontos e pagamentos.
-- Cancelamento e substituição automática de motorista.
-- Chat, push notifications e integrações externas.
-- Autenticação integrada a provedor real de identidade.
+- Geolocalização e mapa real. A tela desenha um percurso ilustrativo.
+- Tarifa oficial. A API devolve uma estimativa fixa para a demonstração.
+- Substituição automática de motorista.
+- Chat persistido, push notifications e integrações externas. As mensagens ficam só no navegador.
+- Provedor real de identidade. O login local assina JWT com a chave privada de desenvolvimento e compara senhas de demonstração em texto.
 - Deploy em cloud e alta disponibilidade.
 
 ## Riscos que devem ser avaliados

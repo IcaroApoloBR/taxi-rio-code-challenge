@@ -20,11 +20,11 @@
 - **Escolha:** chave única e hash de request no MySQL; `eventId` único no MongoDB; atualização versionada no Redis.
 - **Trade-off:** mais metadados e constraints, com proteção consistente contra duplicidade.
 
-## D-004 — JWT estático RS256 para demonstração
-- **Contexto:** requisito pede token estático pré-gerado + JWKS ou chave pública.
-- **Alternativas:** serviço de identidade/JWKS completo ou chave pública local.
-- **Escolha:** validar tokens de teste RS256 com chave pública configurada.
-- **Trade-off:** sem rotação/discovery automatizados; reduz dependências e atende ao escopo.
+## D-004 — JWT RS256 local, estático ou emitido no login
+- **Contexto:** o requisito pede token pré-gerado validado por chave pública, e a interface precisa entrar sem colar o JWT.
+- **Alternativas:** serviço de identidade/JWKS completo, ou só tokens gerados por script.
+- **Escolha:** a API continua validando RS256 com a chave pública. `POST /api/auth/login` assina um token de 8 horas com a chave privada local. Os tokens de `keys/demo-tokens.json` seguem válidos.
+- **Trade-off:** contas e senhas ficam na memória do processo; não há rotação nem provedor externo.
 
 ## D-005 — RabbitMQ ou outro broker em um sistema novo?
 - **Contexto:** o desafio define RabbitMQ, mas pede opinião sobre a escolha se o sistema começasse do zero.
@@ -39,11 +39,11 @@
 - **Escolha:** não implementar Kubernetes; priorizar fundação sólida e operação demonstrável.
 - **Trade-off:** não demonstrar experiência de cluster, mas evitar uma entrega superficial e preservar a qualidade do core.
 
-## D-007 — UI deliberadamente simples
-- **Contexto:** o enunciado informa que design não será avaliado.
-- **Alternativas:** reproduzir aplicativo completo ou construir interface mínima para exercitar API.
-- **Escolha:** UI web funcional com login/token, criação, listagem e acompanhamento.
-- **Trade-off:** menor fidelidade visual, maior tempo dedicado à arquitetura, segurança e observabilidade.
+## D-007 — UI no formato das referências, sem o produto real
+- **Contexto:** as telas de referência mostram mapa, tarifa, desconto, pagamento e chat. O enunciado deixa isso fora do escopo e informa que design não será avaliado.
+- **Alternativas:** formulário mínimo, ou copiar o aplicativo inteiro com mapa e pagamento reais.
+- **Escolha:** duas interfaces, passageiro e motorista, seguindo as referências. Mapa, bandeira, desconto, pagamento e chat são ilustrativos. A corrida, o JWT e as transições vêm da API.
+- **Trade-off:** a tela parece o aplicativo, mas os números não são tarifa oficial e as mensagens não saem do navegador.
 
 ## D-008 — Cache-aside com proteção de versão
 - **Contexto:** Redis deve acelerar leitura, mas não pode se tornar fonte da verdade.
