@@ -62,11 +62,11 @@ services:
       - "${RABBITMQ_PORT:-5672}:5672"
       - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
       - "15692:15692"
-    command: >
-      sh -c "rabbitmq-plugins enable --offline rabbitmq_prometheus &&
-             rabbitmq-server"
+    entrypoint: ["bash", "-c"]
+    command: ["cp /opt/rabbitmq-conf/enabled_plugins /etc/rabbitmq/enabled_plugins && exec docker-entrypoint.sh rabbitmq-server"]
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+      - ./observability/rabbitmq/enabled_plugins:/opt/rabbitmq-conf/enabled_plugins:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -93,6 +93,7 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-local_rabbit}:${RABBITMQ_DEFAULT_PASS:-local_rabbit_password}@rabbitmq:5672
       MONGO_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME:-local_admin}:${MONGO_INITDB_ROOT_PASSWORD:-local_mongo_password}@mongodb:27017/${MONGO_INITDB_DATABASE:-corridas}?authSource=admin
       JWT_PUBLIC_KEY_PATH: /app/keys/jwt-public.pem
+      JWT_PRIVATE_KEY_PATH: /app/keys/jwt-private.pem
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     ports:
       - "${API_PORT:-3000}:3000"
