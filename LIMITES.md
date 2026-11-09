@@ -2,8 +2,12 @@
 
 ## Estado local atual
 
-- As corridas e as contas criadas no login vivem na memória do processo da API. Reiniciar apaga os dois. O MySQL ainda não é a fonte da verdade em execução.
-- RabbitMQ, outbox, MongoDB e Redis não foram validados neste ambiente porque o Docker não está disponível.
+- As contas do login continuam na memória. Reiniciar a API apaga essas contas e não apaga as corridas do MySQL.
+- Com `MYSQL_HOST` definido, corrida, idempotência e outbox ficam no MySQL. Sem `MYSQL_HOST`, os testes seguem em memória.
+- O outbox publica `corrida.criada` e `corrida.status_alterado`. O Worker grava o histórico em `ride_events` no MongoDB e a projeção `ride:{id}:status` no Redis, com TTL de 300 segundos. Uma versão menor não substitui uma maior.
+- O GET da corrida continua lendo o documento no MySQL. Se a projeção está ausente ou mais antiga, a API repõe o Redis a partir do MySQL.
+- A fila de retry espera 5 segundos. Na quarta entrega da mesma fila a mensagem vai para `corridas.dead-letter`. JSON inválido vai direto para essa fila.
+- Foi conferido o redelivery do mesmo `eventId`: o MongoDB manteve um único documento. Ainda não foi forçada uma queda do Worker entre gravar o efeito e o ack.
 
 ## Não implementado por decisão de escopo
 

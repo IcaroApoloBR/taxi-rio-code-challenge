@@ -26,7 +26,7 @@ Credenciais locais do RabbitMQ: consultar `.env`. Todos os valores padrão são 
 
 ## Execução local sem Docker
 
-A API desta etapa guarda as corridas em memória. Reiniciar o processo apaga os dados. MySQL, RabbitMQ e o Worker ficam para quando o Docker estiver disponível.
+Sem `MYSQL_HOST`, a API guarda as corridas em memória e reiniciar o processo apaga os dados. Com o `.env` apontando para o MySQL local, corrida, idempotência e outbox vão para o banco. Publicar eventos e processar o Worker exige `RABBITMQ_URL`, `REDIS_HOST` e `MONGO_URL`.
 
 ```bash
 node scripts/generate-demo-tokens.mjs
@@ -45,10 +45,12 @@ Os tokens de demonstração ficam em `keys/demo-tokens.json`. A chave privada n�
 Esta base fornece:
 - Monorepo pnpm.
 - Compose com MySQL, Redis, MongoDB, RabbitMQ, API, Worker, UI, Prometheus e Jaeger.
-- Endpoint de health da API, métricas básicas de runtime e corridas em memória, com JWT, idempotência e Swagger.
-- Worker conectado à exchange/fila de eventos (consumo demonstrativo).
+- Endpoint de health da API, métricas básicas de runtime, JWT, idempotência e Swagger.
+- Corridas, idempotência e outbox no MySQL quando `MYSQL_HOST` está definido.
+- Worker com ack manual, histórico no MongoDB, projeção versionada no Redis e DLQ.
 - UI de passageiro e motorista, no formato das telas de referência, contra a API local.
 - Login local que emite JWT RS256. Contas de demonstração: `ana@demo.taxi.rio` / `(21) 98888-1001` e RATR `100001` / `demo-livre`. Há também Bruno (`bruno@demo.taxi.rio`, `(21) 98888-1002`) e o motorista RATR `100002`.
+- Workflow inicial de CI.
 
 ## Testar o fluxo
 
@@ -70,17 +72,11 @@ No Swagger (`/api/docs`), o mesmo caminho está descrito no topo da página:
 6. Voltar ao passageiro e chamar `POST /api/corridas/{id}/avaliacao`
 
 Para o caminho negativo, use `POST /api/corridas/{id}/cancel` enquanto o status for `REQUESTED` ou `ACCEPTED`. Um segundo motorista (`100002`) recebe `409` se tentar avançar a corrida do primeiro. O mesmo motorista recebe `409` com código `DRIVER_BUSY` se aceitar outra corrida antes de encerrar a atual.
-- Workflow inicial de CI.
 
-Ainda NÃO implementa o fluxo completo do desafio:
-- Persistência de corridas no MySQL.
-- Transactional Outbox e publicação confiável.
-- Histórico MongoDB e projeção Redis.
+Ainda não implementa:
 - Tracing distribuído real.
-- Métricas de negócio/latência/erros/fila exigidas.
-- Testes de integração e k6.
-
-O `ack` do Worker atual é provisório e deve ser substituído por processamento persistente idempotente antes de considerar o fluxo concluído.
+- Métricas de negócio, latência, erro e fila pedidas pelo desafio.
+- Testes de integração além da suíte atual e o cenário k6.
 
 ## Próximas etapas
 

@@ -38,6 +38,24 @@
 - **Como investiguei:** li o contrato e as telas. Ajustei a lista, o aviso do motorista, o foco visível e os botões principais fixos na base.
 - **Aprendizado/decisão:** mapa, tarifa e chat continuam ilustrativos. O que a etapa entrega é o fluxo autenticado da corrida.
 
+### 2026-11-09 15:19 — MySQL no código e Docker na máquina
+- **O que tentei:** instalar WSL e Docker Desktop e passar a gravação da corrida para o MySQL.
+- **O que aconteceu:** o winget instalou WSL 2.7.14 e Docker Desktop 4.99.0. O DISM devolveu 3010 nos recursos de virtualização. O cliente `docker` 29.9.3 existe em `Program Files`, mas o motor parou com `Virtual Machine Platform not enabled`. Os 15 testes da API continuaram verdes, ainda em memória.
+- **Como investiguei:** o log `com.docker.backend.exe.log` registra `engine linux/wsl failed to start: checking preconditions: Virtual Machine Platform not enabled`.
+- **Aprendizado/decisão:** a API usa MySQL só quando `MYSQL_HOST` existe; os testes não definem essa variável. O Compose fica para depois do reinício do Windows.
+
+### 2026-11-09 16:10 — Compose no ar e corrida no MySQL
+- **O que tentei:** depois do reinício, subir a stack e gravar uma corrida que sobrevivesse ao restart da API.
+- **O que aconteceu:** o motor WSL do Docker ficou pronto. MySQL, Redis, MongoDB e RabbitMQ ficaram healthy. A primeira imagem da API quebrou porque o `node_modules` do Windows entrou no `COPY`. A criação da corrida também falhou ao gravar o JSON da idempotência como `[object Object]`.
+- **Como investiguei:** o log do Nest mostrou `ER_INVALID_JSON_TEXT`. O `HEX(pickup)` de um pedido feito pelo Node veio `C3A3`, que é o `ã`. Depois do restart, `GET /api/corridas` devolveu a mesma corrida.
+- **Aprendizado/decisão:** o corpo da idempotência entra com `CAST(? AS JSON)`. O management do RabbitMQ autenticou `local_rabbit`.
+
+### 2026-11-09 16:50 — Outbox, histórico e projeção
+- **O que tentei:** gravar o evento na mesma transação da corrida, publicar no RabbitMQ e fazer o Worker persistir MongoDB e Redis.
+- **O que aconteceu:** a corrida `f52fcf9f-d9ad-4ebc-a21d-79e1cec391f0` saiu como `corrida.criada`, com correlation `corrida-outbox-check`, e o outbox ficou `published`. O aceite chegou ao Redis como versão 2 e `ACCEPTED`. O cancelamento foi para a versão 3. Republicar o mesmo evento manteve um documento no MongoDB. Um evento de versão 1 não voltou o status. O JSON inválido ficou em `corridas.dead-letter`. A fila `corridas.history` antiga, sem dead-letter, foi recriada na subida.
+- **Como investiguei:** os 15 testes da API passaram sem `MYSQL_HOST`. No Compose, o Worker registrou `processed`, `duplicate` e `Invalid event; sending to DLQ`. O `rabbitmqctl list_queues` demorou e avisou timeout de 60 segundos, mas listou a DLQ com 1 mensagem.
+- **Aprendizado/decisão:** o GET da corrida segue no MySQL e só repõe a projeção. A queda entre o efeito do Worker e o ack ainda não foi forçada.
+
 ## Observação
 
 Uma linha por ocorrência é suficiente. O valor deste documento está em mostrar evidências do processo de investigação, inclusive erros e decisões revertidas.

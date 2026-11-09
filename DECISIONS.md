@@ -49,4 +49,5 @@
 - **Contexto:** Redis deve acelerar leitura, mas não pode se tornar fonte da verdade.
 - **Alternativas:** cache-aside, write-through ou leitura exclusiva do Redis.
 - **Escolha:** cache-aside; Worker atualiza projeção de status com versão; API consulta MySQL em cache miss.
-- **Trade-off:** consistência eventual entre MySQL e Redis; leitura pode observar breve atraso após alteração.
+- **Observado:** a chave é `ride:{id}:status` e o TTL é 300 segundos. O GET monta a corrida pelo MySQL, porque o evento não carrega o documento inteiro, e repõe o Redis quando a projeção falta ou está mais antiga. Um evento de versão 1 não regrediu uma projeção que já estava na versão 2.
+- **Trade-off:** consistência eventual entre MySQL e Redis; quem ler só o Redis pode ver atraso breve depois da alteração.
