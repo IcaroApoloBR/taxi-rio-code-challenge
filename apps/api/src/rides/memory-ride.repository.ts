@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { IdempotencyRecord, IdempotencyRepository, RideRepository } from './ride.repository';
+import { RideEventEnvelope } from './ride-event';
+import { IdempotencyRecord, IdempotencyRepository, OutboxRepository, RideRepository, RideUnitOfWork } from './ride.repository';
 import { Ride } from './ride';
 
 @Injectable()
@@ -62,6 +63,26 @@ export class MemoryIdempotencyRepository extends IdempotencyRepository {
     }
     this.records.set(key, { ...record, body: clone(record.body) });
     return true;
+  }
+}
+
+@Injectable()
+export class MemoryRideUnitOfWork extends RideUnitOfWork {
+  run<T>(work: () => Promise<T>): Promise<T> {
+    return work();
+  }
+}
+
+@Injectable()
+export class MemoryOutboxRepository extends OutboxRepository {
+  private readonly events: RideEventEnvelope[] = [];
+
+  async append(event: RideEventEnvelope): Promise<void> {
+    this.events.push(event);
+  }
+
+  async publishPending(): Promise<number> {
+    return 0;
   }
 }
 

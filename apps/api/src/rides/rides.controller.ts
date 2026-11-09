@@ -5,6 +5,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
+import { CorrelationId } from '../http/correlation.decorator';
 import { ApiErrorDto, CreateRideDto, QuoteRideDto, RateRideDto, RideDto, RideQuoteDto, toQuoteDto, toRideDto, UpdateRideStatusDto } from './ride.dto';
 import { RidesService } from './rides.service';
 
@@ -28,13 +29,14 @@ export class RidesController {
   async create(
     @CurrentUser() user: AuthUser,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @CorrelationId() correlationId: string | null,
     @Body() body: CreateRideDto,
   ): Promise<RideDto> {
     const key = idempotencyKey?.trim();
     if (!key || key.length > 200) {
       throw new BadRequestException('Idempotency-Key é obrigatória.');
     }
-    return toRideDto(await this.rides.create(user.sub, key, body));
+    return toRideDto(await this.rides.create(user.sub, key, body, correlationId));
   }
 
   @Post('cotacao')
@@ -107,10 +109,11 @@ export class RidesController {
   @ApiResponse({ status: 409, type: ApiErrorDto, description: 'Transição inválida, motorista ocupado ou corrida de outro motorista.' })
   async updateStatus(
     @CurrentUser() user: AuthUser,
+    @CorrelationId() correlationId: string | null,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: UpdateRideStatusDto,
   ): Promise<RideDto> {
-    return toRideDto(await this.rides.changeStatus(user.sub, id, body.status));
+    return toRideDto(await this.rides.changeStatus(user.sub, id, body.status, correlationId));
   }
 
   @Post(':id/cancel')
@@ -125,8 +128,12 @@ export class RidesController {
   @ApiResponse({ status: 403, type: ApiErrorDto })
   @ApiResponse({ status: 404, type: ApiErrorDto })
   @ApiResponse({ status: 409, type: ApiErrorDto, description: 'A corrida já está em andamento, concluída ou cancelada.' })
-  async cancel(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string): Promise<RideDto> {
-    return toRideDto(await this.rides.cancel(user, id));
+  async cancel(
+    @CurrentUser() user: AuthUser,
+    @CorrelationId() correlationId: string | null,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<RideDto> {
+    return toRideDto(await this.rides.cancel(user, id, correlationId));
   }
 
   @Post(':id/avaliacao')

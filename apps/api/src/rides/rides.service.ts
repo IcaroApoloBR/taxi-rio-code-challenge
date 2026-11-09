@@ -1,10 +1,20 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { AccountDirectory } from '../auth/account-directory';
 import { AuthUser } from '../auth/auth-user';
-import { IdempotencyRepository, RideRepository } from './ride.repository';
-import { assertTransition, Ride, RideConflictError, RideNotFoundError, RideStatus, IdempotencyConflictError } from './ride';
 import { DiscountPercent, isDiscountPercent, PaymentMethod, quoteRide, RideQuote } from './quote';
+import { rideCreatedEvent, rideStatusChangedEvent } from './ride-event';
+import { IdempotencyRepository, OutboxRepository, RideRepository, RideUnitOfWork } from './ride.repository';
+import {
+  assertTransition,
+  IdempotencyConflictError,
+  IdempotencyRaceError,
+  Ride,
+  RideConflictError,
+  RideNotFoundError,
+  RideStatus,
+} from './ride';
+import { RideStatusCache, RideStatusProjection } from './status-cache';
 
 export interface CreateRideInput {
   pickup: string;
@@ -20,20 +30,34 @@ export interface RateRideInput {
 
 @Injectable()
 export class RidesService {
+  private readonly logger = new Logger(RidesService.name);
   private tail: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly rides: RideRepository,
     private readonly idempotency: IdempotencyRepository,
     private readonly accounts: AccountDirectory,
+    private readonly unit: RideUnitOfWork,
+    private readonly outbox: OutboxRepository,
+    private readonly statusCache: RideStatusCache,
   ) {}
 
   quote(input: { pickup: string; destination: string }): RideQuote {
     return quoteRide(input.pickup, input.destination);
   }
 
-  create(passengerId: string, idempotencyKey: string, input: CreateRideInput): Promise<Ride> {
-    return this.exclusive(() => this.createExclusive(passengerId, idempotencyKey, normalizeCreate(input)));
+  create(passengerId: string, idempotencyKey: string, input: CreateRideInput, correlationId: string | null): Promise<Ride> {
+    const normalized = normalizeCreate(input);
+    return this.serialized(async () => {
+      try {
+        return await this.unit.run(() => this.createExclusive(passengerId, idempotencyKey, normalized, correlationId));
+      } catch (error) {
+        if (!(error instanceof IdempotencyRaceError)) {
+          throw error;
+        }
+        return this.replay(passengerId, idempotencyKey, normalized);
+      }
+    });
   }
 
   list(passengerId: string): Promise<Ride[]> {
@@ -44,8 +68,9 @@ export class RidesService {
     return this.rides.listOpen();
   }
 
-  findForPassenger(passengerId: string, rideId: string): Promise<Ride> {
-    return this.readOwned(passengerId, rideId);
+  async findForPassenger(passengerId: string, rideId: string): Promise<Ride> {
+    const ride = await this.readOwned(passengerId, rideId);
+    return this.withFreshProjection(ride);
   }
 
   async findAssigned(driverId: string): Promise<Ride> {
@@ -56,19 +81,24 @@ export class RidesService {
     return ride;
   }
 
-  changeStatus(driverId: string, rideId: string, status: RideStatus): Promise<Ride> {
-    return this.exclusive(() => this.changeStatusExclusive(driverId, rideId, status));
+  changeStatus(driverId: string, rideId: string, status: RideStatus, correlationId: string | null): Promise<Ride> {
+    return this.serialized(() => this.unit.run(() => this.changeStatusExclusive(driverId, rideId, status, correlationId)));
   }
 
-  cancel(actor: AuthUser, rideId: string): Promise<Ride> {
-    return this.exclusive(() => this.cancelExclusive(actor, rideId));
+  cancel(actor: AuthUser, rideId: string, correlationId: string | null): Promise<Ride> {
+    return this.serialized(() => this.unit.run(() => this.cancelExclusive(actor, rideId, correlationId)));
   }
 
   rate(passengerId: string, rideId: string, input: RateRideInput): Promise<Ride> {
-    return this.exclusive(() => this.rateExclusive(passengerId, rideId, input));
+    return this.serialized(() => this.unit.run(() => this.rateExclusive(passengerId, rideId, input)));
   }
 
-  private async createExclusive(passengerId: string, idempotencyKey: string, input: NormalizedCreate): Promise<Ride> {
+  private async createExclusive(
+    passengerId: string,
+    idempotencyKey: string,
+    input: NormalizedCreate,
+    correlationId: string | null,
+  ): Promise<Ride> {
     const requestHash = hashRequest(input);
     const existing = await this.idempotency.find(passengerId, idempotencyKey);
     if (existing) {
@@ -111,13 +141,25 @@ export class RidesService {
       updatedAt: now,
     };
     await this.rides.insert(ride);
-    await this.idempotency.insert({
+    const stored = await this.idempotency.insert({
       actorId: passengerId,
       key: idempotencyKey,
       requestHash,
       body: ride,
     });
+    if (!stored) {
+      throw new IdempotencyRaceError();
+    }
+    await this.outbox.append(rideCreatedEvent(ride, correlationId));
     return ride;
+  }
+
+  private async replay(passengerId: string, idempotencyKey: string, input: NormalizedCreate): Promise<Ride> {
+    const existing = await this.idempotency.find(passengerId, idempotencyKey);
+    if (!existing || existing.requestHash !== hashRequest(input)) {
+      throw new IdempotencyConflictError();
+    }
+    return existing.body;
   }
 
   private async readOwned(passengerId: string, rideId: string): Promise<Ride> {
@@ -128,7 +170,12 @@ export class RidesService {
     return ride;
   }
 
-  private async changeStatusExclusive(driverId: string, rideId: string, status: RideStatus): Promise<Ride> {
+  private async changeStatusExclusive(
+    driverId: string,
+    rideId: string,
+    status: RideStatus,
+    correlationId: string | null,
+  ): Promise<Ride> {
     const current = await this.rides.findById(rideId);
     if (!current) {
       throw new RideNotFoundError();
@@ -142,14 +189,18 @@ export class RidesService {
       if (active) {
         throw new RideConflictError('O motorista já está em outra corrida.', 'DRIVER_BUSY');
       }
-      return this.save(current, this.accept(current, driverId));
+      return this.save(current, this.accept(current, driverId), correlationId);
     }
 
     if (current.driverId !== driverId) {
       throw new RideConflictError();
     }
     assertTransition(current.status, status);
-    return this.save(current, { ...current, status, version: current.version + 1, updatedAt: new Date().toISOString() });
+    return this.save(
+      current,
+      { ...current, status, version: current.version + 1, updatedAt: new Date().toISOString() },
+      correlationId,
+    );
   }
 
   private accept(current: Ride, driverId: string): Ride {
@@ -167,7 +218,7 @@ export class RidesService {
     };
   }
 
-  private async cancelExclusive(actor: AuthUser, rideId: string): Promise<Ride> {
+  private async cancelExclusive(actor: AuthUser, rideId: string, correlationId: string | null): Promise<Ride> {
     const current = await this.rides.findById(rideId);
     if (!current) {
       throw new RideNotFoundError();
@@ -185,12 +236,16 @@ export class RidesService {
     if (!allowed) {
       throw new RideConflictError('A corrida não pode ser cancelada a partir do status atual.', 'RIDE_CANCEL_CONFLICT');
     }
-    return this.save(current, {
-      ...current,
-      status: 'CANCELLED',
-      version: current.version + 1,
-      updatedAt: new Date().toISOString(),
-    });
+    return this.save(
+      current,
+      {
+        ...current,
+        status: 'CANCELLED',
+        version: current.version + 1,
+        updatedAt: new Date().toISOString(),
+      },
+      correlationId,
+    );
   }
 
   private async rateExclusive(passengerId: string, rideId: string, input: RateRideInput): Promise<Ride> {
@@ -202,24 +257,54 @@ export class RidesService {
       throw new RideConflictError('A corrida já foi avaliada.', 'RIDE_ALREADY_RATED');
     }
     const comment = input.comment?.trim() ? input.comment.trim() : null;
-    return this.save(current, {
-      ...current,
-      ratingScore: input.score,
-      ratingComment: comment,
-      version: current.version + 1,
-      updatedAt: new Date().toISOString(),
-    });
+    return this.save(
+      current,
+      {
+        ...current,
+        ratingScore: input.score,
+        ratingComment: comment,
+        version: current.version + 1,
+        updatedAt: new Date().toISOString(),
+      },
+      null,
+    );
   }
 
-  private async save(current: Ride, next: Ride): Promise<Ride> {
+  private async save(current: Ride, next: Ride, correlationId: string | null): Promise<Ride> {
     const saved = await this.rides.replace(next, current.version);
     if (!saved) {
       throw new RideConflictError();
     }
+    if (current.status !== next.status) {
+      await this.outbox.append(rideStatusChangedEvent(current, next, correlationId));
+    }
     return next;
   }
 
-  private exclusive<T>(work: () => Promise<T>): Promise<T> {
+  private async withFreshProjection(ride: Ride): Promise<Ride> {
+    try {
+      const cached = await this.statusCache.read(ride.id);
+      if (!cached || cached.version < ride.version) {
+        await this.statusCache.writeIfNewer(projectionOf(ride));
+        return ride;
+      }
+      if (cached.version === ride.version) {
+        return ride;
+      }
+      return {
+        ...ride,
+        status: cached.status,
+        driverId: cached.driverId,
+        version: cached.version,
+        updatedAt: cached.updatedAt,
+      };
+    } catch (error) {
+      this.logger.warn(`Projeção de status indisponível: ${error instanceof Error ? error.message : 'erro'}`);
+      return ride;
+    }
+  }
+
+  private serialized<T>(work: () => Promise<T>): Promise<T> {
     const run = this.tail.then(work, work);
     this.tail = run.then(
       () => undefined,
@@ -246,6 +331,17 @@ function normalizeCreate(input: CreateRideInput): NormalizedCreate {
     destination: input.destination,
     discountPercent,
     paymentMethod: input.paymentMethod ?? 'credit_card',
+  };
+}
+
+function projectionOf(ride: Ride): RideStatusProjection {
+  return {
+    rideId: ride.id,
+    passengerId: ride.passengerId,
+    driverId: ride.driverId,
+    status: ride.status,
+    version: ride.version,
+    updatedAt: ride.updatedAt,
   };
 }
 

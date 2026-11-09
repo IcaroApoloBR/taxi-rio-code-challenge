@@ -48,6 +48,7 @@ function toErrorBody(exception: unknown, correlationId: string): ApiErrorBody {
       correlationId,
     };
   }
+  console.error(exception);
   return {
     statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
     code: 'INTERNAL_ERROR',

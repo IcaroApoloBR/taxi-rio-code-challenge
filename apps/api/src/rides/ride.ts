@@ -59,6 +59,12 @@ export class IdempotencyConflictError extends Error {
   }
 }
 
+export class IdempotencyRaceError extends Error {
+  constructor() {
+    super('A chave de idempotência foi gravada por outra requisição.');
+  }
+}
+
 export function assertTransition(current: RideStatus, next: RideStatus): void {
   if (nextStatus[current] !== next) {
     throw new RideConflictError();

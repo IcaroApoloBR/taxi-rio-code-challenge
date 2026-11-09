@@ -1,3 +1,4 @@
+import { RideEventEnvelope } from './ride-event';
 import { Ride } from './ride';
 
 export interface IdempotencyRecord {
@@ -19,4 +20,13 @@ export abstract class RideRepository {
 export abstract class IdempotencyRepository {
   abstract find(actorId: string, key: string): Promise<IdempotencyRecord | null>;
   abstract insert(record: IdempotencyRecord): Promise<boolean>;
+}
+
+export abstract class RideUnitOfWork {
+  abstract run<T>(work: () => Promise<T>): Promise<T>;
+}
+
+export abstract class OutboxRepository {
+  abstract append(event: RideEventEnvelope): Promise<void>;
+  abstract publishPending(publish: (event: RideEventEnvelope) => Promise<void>): Promise<number>;
 }
