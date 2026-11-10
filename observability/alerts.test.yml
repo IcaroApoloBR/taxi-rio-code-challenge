@@ -1,0 +1,51 @@
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{method="POST",route="/api/corridas",status="500"}'
+        values: '0+10x15'
+      - series: 'http_request_errors_total{method="POST",route="/api/corridas"}'
+        values: '0+10x15'
+      - series: 'rabbitmq_queue_messages_ready{queue="corridas.history",vhost="/"}'
+        values: '0x15'
+      - series: 'corridas_oldest_message_age_seconds'
+        values: '0x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: APIHighErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Taxa de erro da API acima de 5%"
+              description: "Mais de 5% das respostas foram 5xx durante 5 minutos, com pelo menos 20 requisições no período."
+      - eval_time: 10m
+        alertname: CorridasQueueBacklog
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{method="POST",route="/api/corridas",status="201"}'
+        values: '0+10x15'
+      - series: 'http_request_errors_total{method="POST",route="/api/corridas"}'
+        values: '0x15'
+      - series: 'rabbitmq_queue_messages_ready{queue="corridas.history",vhost="/"}'
+        values: '150x15'
+      - series: 'corridas_oldest_message_age_seconds'
+        values: '0x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: APIHighErrorRate
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: CorridasQueueBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Fila de corridas acumulada"
+              description: "Há mais de 100 mensagens prontas nas filas de corrida, a mensagem do topo passou de 60 segundos, ou o outbox tem um evento sem publicar há mais de 60 segundos."
