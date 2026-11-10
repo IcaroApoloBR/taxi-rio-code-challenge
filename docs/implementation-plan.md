@@ -1,5 +1,7 @@
 # Plano de Implementação
 
+Este plano foi executado. Para subir a stack e julgar o fluxo, use o README. Kubernetes ficou de fora, como registram a D-006 e `LIMITES.md`.
+
 ## Princípio de priorização
 
 O tempo sugerido pelo avaliador é de 6 a 8 horas. O objetivo não é construir uma plataforma de produção completa; é entregar um recorte coeso, executável e explicável.

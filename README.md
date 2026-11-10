@@ -1,6 +1,6 @@
 # TAXI.RIO — Corridas
 
-Starter de monorepo para o desafio técnico. A documentação de produto, domínio, arquitetura e decisões está em `docs/`, `DECISIONS.md`, `DIARIO.md` e `LIMITES.md`.
+Fluxo de corrida para o desafio técnico: passageiro cria, motorista avança, e o Worker registra o histórico. A arquitetura está em `docs/architecture.md`. As escolhas estão em `DECISIONS.md`. O que ficou de fora está em `LIMITES.md`. O diário de investigação está em `DIARIO.md`.
 
 ## Requisitos locais
 
@@ -40,14 +40,13 @@ pnpm --filter @taxi/web dev
 
 Os tokens de demonstração ficam em `keys/demo-tokens.json`. A chave privada não entra no Git.
 
-## Estado atual do starter
-
-Esta base fornece:
+## O que está entregue
 - Monorepo pnpm.
 - Compose com MySQL, Redis, MongoDB, RabbitMQ, API, Worker, UI, Prometheus e Jaeger.
 - Endpoint de health da API, métricas básicas de runtime, JWT, idempotência e Swagger.
 - Corridas, idempotência e outbox no MySQL quando `MYSQL_HOST` está definido.
 - Worker com ack manual, histórico no MongoDB, projeção versionada no Redis e DLQ.
+- Logs JSON, métricas HTTP e do Worker, dois alertas e trace da API até o Worker. O roteiro está em "Acompanhar uma corrida".
 - UI de passageiro e motorista, no formato das telas de referência, contra a API local.
 - Login local que emite JWT RS256. Contas de demonstração: `ana@demo.taxi.rio` / `(21) 98888-1001` e RATR `100001` / `demo-livre`. Há também Bruno (`bruno@demo.taxi.rio`, `(21) 98888-1002`) e o motorista RATR `100002`.
 - Workflow inicial de CI.
@@ -73,11 +72,15 @@ No Swagger (`/api/docs`), o mesmo caminho está descrito no topo da página:
 
 Para o caminho negativo, use `POST /api/corridas/{id}/cancel` enquanto o status for `REQUESTED` ou `ACCEPTED`. Um segundo motorista (`100002`) recebe `409` se tentar avançar a corrida do primeiro. O mesmo motorista recebe `409` com código `DRIVER_BUSY` se aceitar outra corrida antes de encerrar a atual.
 
-Ainda não implementa:
-- Tracing distribuído real.
-- Métricas de negócio, latência, erro e fila pedidas pelo desafio.
-- Testes de integração além da suíte atual e o cenário k6.
+## Acompanhar uma corrida
 
-## Próximas etapas
+O header `X-Correlation-Id` da resposta é o mesmo valor dos logs. Ele não é o trace ID.
 
-Siga `docs/implementation-plan.md`. Não trate o starter como solução final. Atualize `DECISIONS.md`, `DIARIO.md` e `LIMITES.md` com fatos observados durante o desenvolvimento.
+1. Criar a corrida e guardar o header e o `trace_id` do log JSON da API.
+2. No Jaeger (http://localhost:16686), abrir o serviço `api` e procurar o span `POST /api/corridas` pelo atributo `correlation_id`.
+3. O span `mysql ride transaction` é filho desse HTTP. O span `publish outbox event` abre outro trace e aponta para a transação com `FOLLOWS_FROM`.
+4. No serviço `worker`, o span `consume corridas.history` aponta para a publicação com `FOLLOWS_FROM`. A gravação no MongoDB é filha do consumo. A atualização do Redis aparece no mesmo padrão quando o evento é `corrida.status_alterado`.
+
+Exemplo observado em 2026-11-10: corrida `c527cc71-640a-46c0-8b85-76dd56c3e6dc`, correlation `corrida-trace-link`, trace HTTP `ec4607b4019a5faafd8cfe20302a1998`. O log da API trouxe esse `trace_id` e a rota `/api/corridas`. O Worker registrou o mesmo `correlationId`.
+
+O plano que orientou a entrega está em `docs/implementation-plan.md`. Ele já foi executado.

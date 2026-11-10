@@ -71,7 +71,7 @@ A resposta HTTP não deve depender de o Worker terminar o histórico. A corrida 
 3. API atualiza o estado no MySQL e grava evento outbox na mesma transação.
 4. Publicador envia `corrida.status_alterado`.
 5. Worker grava histórico no MongoDB e atualiza Redis.
-6. UI consulta `GET /corridas/:id`; API tenta Redis e recorre ao MySQL em cache miss.
+6. A UI consulta `GET /corridas/:id` a cada 3 segundos. A API lê a corrida no MySQL. Se a projeção do Redis falta ou está mais antiga, a API a repõe. Se a projeção está mais nova, status, motorista, versão e atualização vêm dela.
 
 ## 5. Transactional Outbox
 
@@ -86,7 +86,7 @@ Gravar a alteração de negócio e o evento pendente na mesma transação MySQL.
 - Evita depender de dual-write não atômico.
 - Pode publicar novamente se cair entre a confirmação do broker e a marcação no banco; por isso consumidores precisam ser idempotentes.
 
-## 6. Topologia RabbitMQ proposta
+## 6. Topologia RabbitMQ
 
 - Exchange: `corridas.events` (`topic`, durable).
 - Routing keys:
@@ -97,7 +97,7 @@ Gravar a alteração de negócio e o evento pendente na mesma transação MySQL.
 - DLX: `corridas.dlx`.
 - DLQ: `corridas.dead-letter`.
 
-A separação de filas permite que a falha de um consumidor não bloqueie o outro. Política de retry deve ser limitada e documentada; após o limite, a mensagem vai para DLQ para inspeção.
+A separação de filas permite que a falha de um consumidor não bloqueie o outro. Cada fila tem a própria retry, com TTL de 5 segundos, para um retry do histórico não voltar à fila de status. Na quarta entrega da mesma fila, ou quando o JSON é inválido, a mensagem vai para `corridas.dead-letter`. A topologia está repetida em `apps/api/src/rides/rabbit-topology.ts` e `apps/worker/src/topology.ts` e os dois arquivos precisam permanecer iguais.
 
 ## 7. Consistência e leitura
 
@@ -134,10 +134,10 @@ API + Worker + RabbitMQ --> Prometheus
 API + Worker ------------> OpenTelemetry --> Jaeger
 ```
 
-## 9. Decisões ainda dependentes da implementação
+## 9. Decisões fechadas na implementação
 
-- Se API e Worker compartilham pacote de contratos/eventos.
-- Estratégia concreta de retry e backoff.
-- TTL do cache.
-- Polling da UI e intervalo.
-- Política de retenção de eventos e logs.
+- API e Worker não compartilham um pacote de eventos. O envelope e a topologia estão duplicados de propósito, para cada processo subir sozinho.
+- O retry espera 5 segundos. A quarta entrega da mesma fila vai para a DLQ. Não há backoff crescente.
+- A projeção `ride:{id}:status` expira em 300 segundos.
+- Passageiro e motorista consultam a API a cada 3 segundos e limpam o intervalo ao sair da tela.
+- Não há política de retenção além do que MySQL, MongoDB e o volume local guardam. Logs saem em stdout.

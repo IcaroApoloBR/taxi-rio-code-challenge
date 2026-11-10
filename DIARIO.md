@@ -56,6 +56,12 @@
 - **Como investiguei:** os 15 testes da API passaram sem `MYSQL_HOST`. No Compose, o Worker registrou `processed`, `duplicate` e `Invalid event; sending to DLQ`. O `rabbitmqctl list_queues` demorou e avisou timeout de 60 segundos, mas listou a DLQ com 1 mensagem.
 - **Aprendizado/decisão:** o GET da corrida segue no MySQL e só repõe a projeção. A queda entre o efeito do Worker e o ack ainda não foi forçada.
 
+### 2026-11-10 14:52 — Trace, métricas, alertas e k6
+- **O que tentei:** fechar a observabilidade do desafio e os testes que faltavam: dois motoristas na mesma corrida, métricas sem UUID na rota, falha do Worker antes do ack, alertas e um k6 curto.
+- **O que aconteceu:** a API ficou com 17 testes verdes e o Worker com 5. A corrida `c527cc71-640a-46c0-8b85-76dd56c3e6dc`, correlation `corrida-trace-link`, gerou o trace HTTP `ec4607b4019a5faafd8cfe20302a1998`. O MySQL é filho desse span. A publicação `91d23283c63cba47231066e920eaeb8b` aponta para a transação, e o consumo `0fa6a366c8e4a6308c054296d8fc7138` aponta para a publicação. O log do Worker da corrida `f6453e5b-24c8-4d3c-824b-2c82f14b9d95` trouxe `trace_id` `fd599c34464c41f15b5853c0c50497b0`. O `promtool test rules` passou e o Prometheus carregou `APIHighErrorRate` e `CorridasQueueBacklog`. O k6 fez 672 requisições, 0% de erro, p95 73,51 ms.
+- **Como investiguei:** a primeira exportação abriu um trace por span. O SDK de trace não registra sozinho o context manager; `@opentelemetry/context-async-hooks` passou a propagar o span pela requisição e pelo consumo. O `/metrics` do RabbitMQ não tem label de fila; o scrape foi para `/metrics/per-object`, onde `corridas.history` aparece e o timestamp do topo vem `NaN` com a fila vazia.
+- **Aprendizado/decisão:** o processamento assíncrono fica em outro trace, ligado por `FOLLOWS_FROM`, e não como filho do HTTP. A queda do processo entre o insert no MongoDB e o ack continua não forçada; o teste cobre o `nack` quando o handler lança.
+
 ## Observação
 
 Uma linha por ocorrência é suficiente. O valor deste documento está em mostrar evidências do processo de investigação, inclusive erros e decisões revertidas.
