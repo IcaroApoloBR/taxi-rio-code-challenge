@@ -25,6 +25,12 @@ jobs:
         run: pnpm lint
 
       - name: Test
+        env:
+          MYSQL_HOST: ""
+          REDIS_HOST: ""
+          RABBITMQ_URL: ""
+          MONGO_URL: ""
+          OTEL_EXPORTER_OTLP_ENDPOINT: ""
         run: pnpm test
 
       - name: Build
