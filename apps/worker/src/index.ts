@@ -2,6 +2,7 @@ import http from 'node:http';
 import amqp, { ChannelModel } from 'amqplib';
 import { Redis } from 'ioredis';
 import { MongoClient } from 'mongodb';
+import { startTracing, shutdownTracing } from './tracing.js';
 import { consumeQueue, log } from './consume.js';
 import { HistoryStore, RideEventDocument } from './history.js';
 import { register } from './metrics.js';
@@ -22,6 +23,7 @@ const metricsServer = http.createServer(async (req, res) => {
 });
 
 async function bootstrap(): Promise<void> {
+  startTracing('worker');
   metricsServer.listen(metricsPort, '0.0.0.0');
 
   const rabbitUrl = required('RABBITMQ_URL');
@@ -92,6 +94,7 @@ async function bootstrap(): Promise<void> {
     await closeConnection(connection);
     await mongo.close().catch(() => undefined);
     await redis.quit().catch(() => undefined);
+    await shutdownTracing();
     metricsServer.close();
     process.exit(0);
   };

@@ -1,8 +1,10 @@
+import { context, Span, SpanStatusCode, trace } from '@opentelemetry/api';
 import { Channel, ConsumeMessage } from 'amqplib';
 import { deathCount, maxDeliveries } from './delivery.js';
 import { InvalidRideEvent, RideEvent, parseRideEvent } from './event.js';
-import { eventsTotal } from './metrics.js';
+import { eventDuration, eventsFailed, eventsProcessed } from './metrics.js';
 import { rideDeadLetterExchange } from './topology.js';
+import { carrierFromHeaders, linksFromCarrier, traceFields } from './tracing.js';
 
 export function log(level: 'info' | 'error', message: string, fields: Record<string, unknown> = {}): void {
   process.stdout.write(
@@ -12,6 +14,7 @@ export function log(level: 'info' | 'error', message: string, fields: Record<str
       service: 'worker',
       message,
       ...fields,
+      ...traceFields(),
     }) + '\n',
   );
 }
@@ -28,7 +31,7 @@ export async function consumeQueue(
     (message) => {
       if (!message) return;
       let job!: Promise<void>;
-      job = onMessage(channel, queue, message, handle, isStopping)
+      job = handleDelivery(channel, queue, message, handle, isStopping)
         .catch((error: unknown) => {
           log('error', 'Consumer failed', { queue, error: error instanceof Error ? error.message : 'error' });
         })
@@ -40,7 +43,7 @@ export async function consumeQueue(
   return consumer.consumerTag;
 }
 
-async function onMessage(
+export async function handleDelivery(
   channel: Channel,
   queue: string,
   message: ConsumeMessage,
@@ -52,16 +55,28 @@ async function onMessage(
     return;
   }
 
+  const started = process.hrtime.bigint();
+  let eventType = 'unknown';
+  const finish = (result: 'processed' | 'duplicate' | 'invalid' | 'dead' | 'retry'): void => {
+    eventDuration.observe({ event_type: eventType }, Number(process.hrtime.bigint() - started) / 1e9);
+    if (result === 'processed' || result === 'duplicate') {
+      eventsProcessed.inc({ event_type: eventType, result });
+      return;
+    }
+    eventsFailed.inc({ event_type: eventType, result });
+  };
+
   let event: RideEvent;
   try {
     event = parseRideEvent(message.content.toString());
+    eventType = event.eventType;
   } catch (error) {
     log('error', 'Invalid event; sending to DLQ', {
       queue,
       reason: error instanceof Error ? error.message : 'invalid',
     });
     deadLetter(channel, message, queue);
-    eventsTotal.inc({ queue, result: 'invalid' });
+    finish('invalid');
     return;
   }
 
@@ -72,31 +87,48 @@ async function onMessage(
       correlationId: event.correlationId,
     });
     deadLetter(channel, message, queue);
-    eventsTotal.inc({ queue, result: 'dead' });
+    finish('dead');
     return;
   }
 
+  const span = trace.getTracer('taxi-rio').startSpan(`consume ${queue}`, {
+    links: linksFromCarrier(carrierFromHeaders(message.properties.headers)),
+    attributes: {
+      'messaging.system': 'rabbitmq',
+      'messaging.destination.name': queue,
+      'messaging.operation.name': event.eventType,
+      'messaging.message.id': event.eventId,
+      ...(event.correlationId ? { correlation_id: event.correlationId } : {}),
+      ride_id: event.payload.rideId,
+    },
+  });
+
   try {
-    const result = await handle(event);
+    const result = await context.with(trace.setSpan(context.active(), span), () => handle(event));
     channel.ack(message);
-    eventsTotal.inc({ queue, result });
+    finish(result);
     log('info', 'Event processed', {
       queue,
       eventId: event.eventId,
       eventType: event.eventType,
       correlationId: event.correlationId,
       result,
+      ...spanFields(span),
     });
+    span.end();
   } catch (error) {
+    span.setStatus({ code: SpanStatusCode.ERROR });
+    span.end();
     if (error instanceof InvalidRideEvent) {
       log('error', 'Event rejected; sending to DLQ', {
         queue,
         eventId: event.eventId,
         correlationId: event.correlationId,
         reason: error.message,
+        ...spanFields(span),
       });
       deadLetter(channel, message, queue);
-      eventsTotal.inc({ queue, result: 'invalid' });
+      finish('invalid');
       return;
     }
     log('error', 'Event processing failed; scheduling retry', {
@@ -104,10 +136,17 @@ async function onMessage(
       eventId: event.eventId,
       correlationId: event.correlationId,
       error: error instanceof Error ? error.message : 'error',
+      ...spanFields(span),
     });
     channel.nack(message, false, false);
-    eventsTotal.inc({ queue, result: 'retry' });
+    finish('retry');
   }
+}
+
+function spanFields(span: Span): Record<string, string> {
+  const spanContext = span.spanContext();
+  if (!trace.isSpanContextValid(spanContext)) return {};
+  return { trace_id: spanContext.traceId, span_id: spanContext.spanId };
 }
 
 function deadLetter(channel: Channel, message: ConsumeMessage, queue: string): void {

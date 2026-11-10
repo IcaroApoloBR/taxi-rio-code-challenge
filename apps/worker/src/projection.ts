@@ -1,9 +1,10 @@
 import { Redis } from 'ioredis';
 import { InvalidRideEvent, RideEvent } from './event.js';
+import { withSpan } from './tracing.js';
 
 export const statusCacheTtlSeconds = 300;
 
-const writeIfNewerScript = `
+export const writeIfNewerScript = `
 local current = redis.call('GET', KEYS[1])
 if current then
   local ok, decoded = pcall(cjson.decode, current)
@@ -30,13 +31,15 @@ export class StatusProjection {
       version: event.payload.version,
       updatedAt: event.payload.updatedAt,
     };
-    const written = await this.redis.eval(
-      writeIfNewerScript,
-      1,
-      `ride:${projection.rideId}:status`,
-      String(projection.version),
-      JSON.stringify(projection),
-      String(statusCacheTtlSeconds),
+    const written = await withSpan('redis ride status', { ride_id: projection.rideId }, () =>
+      this.redis.eval(
+        writeIfNewerScript,
+        1,
+        `ride:${projection.rideId}:status`,
+        String(projection.version),
+        JSON.stringify(projection),
+        String(statusCacheTtlSeconds),
+      ),
     );
     return written === 1 ? 'processed' : 'duplicate';
   }
