@@ -1,6 +1,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ApiExceptionFilter } from './http/api-exception.filter';
+import { accessLogMiddleware } from './http/access-log.middleware';
 import { correlationMiddleware } from './http/correlation.middleware';
 
 export function configureApp(app: INestApplication): void {
@@ -12,6 +13,7 @@ export function configureApp(app: INestApplication): void {
     allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Correlation-Id'],
   });
   app.use(correlationMiddleware);
+  app.use(accessLogMiddleware);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
   app.useGlobalFilters(new ApiExceptionFilter());
 

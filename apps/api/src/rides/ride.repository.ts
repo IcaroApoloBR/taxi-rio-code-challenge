@@ -29,4 +29,5 @@ export abstract class RideUnitOfWork {
 export abstract class OutboxRepository {
   abstract append(event: RideEventEnvelope): Promise<void>;
   abstract publishPending(publish: (event: RideEventEnvelope) => Promise<void>): Promise<number>;
+  abstract oldestPendingAgeSeconds(): Promise<number>;
 }

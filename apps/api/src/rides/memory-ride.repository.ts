@@ -84,6 +84,10 @@ export class MemoryOutboxRepository extends OutboxRepository {
   async publishPending(): Promise<number> {
     return 0;
   }
+
+  async oldestPendingAgeSeconds(): Promise<number> {
+    return 0;
+  }
 }
 
 function storageKey(actorId: string, key: string): string {

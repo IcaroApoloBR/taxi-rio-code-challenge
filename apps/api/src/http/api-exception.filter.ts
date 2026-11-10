@@ -2,6 +2,7 @@ import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from
 import { randomUUID } from 'node:crypto';
 import { Request, Response } from 'express';
 import { InvalidCredentialsError } from '../auth/invalid-credentials.error';
+import { writeLog } from './log';
 import { IdempotencyConflictError, RideConflictError, RideNotFoundError } from '../rides/ride';
 
 interface RequestWithCorrelation extends Request {
@@ -48,13 +49,23 @@ function toErrorBody(exception: unknown, correlationId: string): ApiErrorBody {
       correlationId,
     };
   }
-  console.error(exception);
+  writeLog('error', 'Unhandled error', {
+    correlation_id: correlationId,
+    error: exception instanceof Error ? exception.name : 'unknown',
+    code: errorCode(exception),
+  });
   return {
     statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
     code: 'INTERNAL_ERROR',
     message: 'Erro interno.',
     correlationId,
   };
+}
+
+function errorCode(exception: unknown): string | undefined {
+  if (!exception || typeof exception !== 'object' || !('code' in exception)) return undefined;
+  const code = exception.code;
+  return typeof code === 'string' || typeof code === 'number' ? String(code) : undefined;
 }
 
 function codeForStatus(statusCode: number, exception: HttpException): string {

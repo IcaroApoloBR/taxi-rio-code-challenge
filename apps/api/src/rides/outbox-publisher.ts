@@ -1,5 +1,8 @@
+import { context, SpanStatusCode, trace } from '@opentelemetry/api';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import amqp, { ConfirmChannel, ChannelModel } from 'amqplib';
+import { setOldestMessageAge } from '../http/http-metrics';
+import { injectTraceHeaders, linksFromTraceParent } from '../http/tracing';
 import { ensureTopology, rideEventsExchange } from './rabbit-topology';
 import { RideEventEnvelope } from './ride-event';
 import { OutboxRepository } from './ride.repository';
@@ -41,6 +44,11 @@ export class OutboxPublisher implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`Publicação do outbox adiada: ${error instanceof Error ? error.message : 'erro'}`);
       await this.drop();
     } finally {
+      try {
+        setOldestMessageAge(await this.outbox.oldestPendingAgeSeconds());
+      } catch (error) {
+        this.logger.warn(`Idade do outbox indisponível: ${error instanceof Error ? error.message : 'erro'}`);
+      }
       this.running = false;
     }
   }
@@ -80,19 +88,42 @@ export class OutboxPublisher implements OnModuleInit, OnModuleDestroy {
     if (!channel) {
       throw new Error('Canal do RabbitMQ indisponível.');
     }
-    const body = Buffer.from(JSON.stringify(event));
-    const accepted = channel.publish(rideEventsExchange, event.eventType, body, {
-      persistent: true,
-      contentType: 'application/json',
-      messageId: event.eventId,
-      correlationId: event.correlationId ?? undefined,
-      type: event.eventType,
-      appId: 'taxi-api',
+    const span = trace.getTracer('taxi-rio').startSpan('publish outbox event', {
+      links: linksFromTraceParent(event.traceParent),
+      attributes: {
+        'messaging.system': 'rabbitmq',
+        'messaging.destination.name': rideEventsExchange,
+        'messaging.operation.name': event.eventType,
+        'messaging.message.id': event.eventId,
+        ...(event.correlationId ? { correlation_id: event.correlationId } : {}),
+        ride_id: event.payload.rideId,
+      },
     });
-    if (!accepted) {
-      await new Promise<void>((resolve) => channel.once('drain', () => resolve()));
+    const headers: Record<string, string> = {};
+    context.with(trace.setSpan(context.active(), span), () => {
+      injectTraceHeaders(headers);
+    });
+    try {
+      const body = Buffer.from(JSON.stringify(publishedEvent(event)));
+      const accepted = channel.publish(rideEventsExchange, event.eventType, body, {
+        persistent: true,
+        contentType: 'application/json',
+        messageId: event.eventId,
+        correlationId: event.correlationId ?? undefined,
+        type: event.eventType,
+        appId: 'taxi-api',
+        headers,
+      });
+      if (!accepted) {
+        await new Promise<void>((resolve) => channel.once('drain', () => resolve()));
+      }
+      await channel.waitForConfirms();
+      span.end();
+    } catch (error) {
+      span.setStatus({ code: SpanStatusCode.ERROR });
+      span.end();
+      throw error;
     }
-    await channel.waitForConfirms();
   }
 
   private async drop(): Promise<void> {
@@ -103,4 +134,10 @@ export class OutboxPublisher implements OnModuleInit, OnModuleDestroy {
     await channel?.close().catch(() => undefined);
     await connection?.close().catch(() => undefined);
   }
+}
+
+function publishedEvent(event: RideEventEnvelope): Omit<RideEventEnvelope, 'traceParent'> {
+  const { traceParent, ...body } = event;
+  void traceParent;
+  return body;
 }

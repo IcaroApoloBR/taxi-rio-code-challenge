@@ -33,6 +33,8 @@ function loadEnv(): void {
 
 async function bootstrap(): Promise<void> {
   loadEnv();
+  const { startTracing } = await import('./http/tracing');
+  startTracing('api');
   const { AppModule } = await import('./app.module');
   const { configureApp } = await import('./app.setup');
   const app = await NestFactory.create(AppModule);

@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { createPool, Pool, PoolConnection } from 'mysql2/promise';
+import { createPool, Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
+import { withSpan } from '../http/tracing';
 
 const schema = [
   `CREATE TABLE IF NOT EXISTS rides (
@@ -50,6 +51,7 @@ const schema = [
     created_at VARCHAR(32) NOT NULL,
     published_at VARCHAR(32) NULL,
     attempts INT NOT NULL,
+    traceparent VARCHAR(255) NULL,
     PRIMARY KEY (id),
     KEY outbox_pending (published_at, created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
@@ -84,10 +86,12 @@ export class MysqlDatabase implements OnModuleInit, OnModuleDestroy {
     }
     const connection = await this.pool.getConnection();
     try {
-      await connection.beginTransaction();
-      const result = await this.current.run(connection, work);
-      await connection.commit();
-      return result;
+      return await withSpan('mysql ride transaction', {}, async () => {
+        await connection.beginTransaction();
+        const result = await this.current.run(connection, work);
+        await connection.commit();
+        return result;
+      });
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -99,6 +103,14 @@ export class MysqlDatabase implements OnModuleInit, OnModuleDestroy {
   async onModuleInit(): Promise<void> {
     for (const statement of schema) {
       await this.pool.query(statement);
+    }
+    const [columns] = await this.pool.query<RowDataPacket[]>(
+      `SELECT COLUMN_NAME AS column_name
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'outbox_events' AND COLUMN_NAME = 'traceparent'`,
+    );
+    if (columns.length === 0) {
+      await this.pool.query('ALTER TABLE outbox_events ADD COLUMN traceparent VARCHAR(255) NULL');
     }
     await this.pool.query('SELECT 1');
   }

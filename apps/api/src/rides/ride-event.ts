@@ -27,6 +27,7 @@ export interface RideEventEnvelope {
   occurredAt: string;
   correlationId: string | null;
   schemaVersion: 1;
+  traceParent: string | null;
   payload: RideCreatedPayload | RideStatusChangedPayload;
 }
 
@@ -37,6 +38,7 @@ export function rideCreatedEvent(ride: Ride, correlationId: string | null): Ride
     occurredAt: ride.createdAt,
     correlationId,
     schemaVersion: 1,
+    traceParent: null,
     payload: {
       rideId: ride.id,
       passengerId: ride.passengerId,
@@ -53,6 +55,7 @@ export function rideStatusChangedEvent(previous: Ride, next: Ride, correlationId
     occurredAt: next.updatedAt,
     correlationId,
     schemaVersion: 1,
+    traceParent: null,
     payload: {
       rideId: next.id,
       passengerId: next.passengerId,
