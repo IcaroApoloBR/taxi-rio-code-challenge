@@ -298,6 +298,37 @@ describe('corridas API', () => {
       .expect(404);
   });
 
+  it('lets only one of two drivers accept the same ride', async () => {
+    const manuel = await login({ role: 'driver', ratr: '100001', password: 'demo-livre' });
+    const taxista = await login({ role: 'driver', ratr: '100002', password: 'demo-livre' });
+    await releaseDriver(manuel.accessToken);
+    await releaseDriver(taxista.accessToken);
+    const ride = await createRide(tokens.passengerA, `race-${Date.now()}`, 'Centro', 'Lapa');
+    const [left, right] = await Promise.all([
+      request(app.getHttpServer())
+        .patch(`/api/corridas/${ride.id}/status`)
+        .set('Authorization', `Bearer ${manuel.accessToken}`)
+        .send({ status: 'ACCEPTED' }),
+      request(app.getHttpServer())
+        .patch(`/api/corridas/${ride.id}/status`)
+        .set('Authorization', `Bearer ${taxista.accessToken}`)
+        .send({ status: 'ACCEPTED' }),
+    ]);
+    expect([left.status, right.status].sort()).toEqual([200, 409]);
+    await request(app.getHttpServer())
+      .post(`/api/corridas/${ride.id}/cancel`)
+      .set('Authorization', `Bearer ${tokens.passengerA}`)
+      .expect(200);
+  });
+
+  it('counts HTTP requests by route template', async () => {
+    await request(app.getHttpServer()).get('/api/health').expect(200);
+    const metrics = await request(app.getHttpServer()).get('/api/metrics').expect(200);
+    expect(metrics.text).toContain('http_requests_total{');
+    expect(metrics.text).toContain('http_request_duration_seconds');
+    expect(metrics.text).not.toMatch(/route="[^"]*[0-9a-f]{8}-[0-9a-f]{4}-/);
+  });
+
   async function createRide(
     token: string,
     key: string,
