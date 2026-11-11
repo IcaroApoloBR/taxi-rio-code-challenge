@@ -62,6 +62,12 @@
 - **Como investiguei:** a primeira exportação abriu um trace por span. O SDK de trace não registra sozinho o context manager; `@opentelemetry/context-async-hooks` passou a propagar o span pela requisição e pelo consumo. O `/metrics` do RabbitMQ não tem label de fila; o scrape foi para `/metrics/per-object`, onde `corridas.history` aparece e o timestamp do topo vem `NaN` com a fila vazia.
 - **Aprendizado/decisão:** o processamento assíncrono fica em outro trace, ligado por `FOLLOWS_FROM`, e não como filho do HTTP. A queda do processo entre o insert no MongoDB e o ack continua não forçada; o teste cobre o `nack` quando o handler lança.
 
+### 2026-11-11 15:30 — Corridas antigas travando o fluxo
+- **O que tentei:** entrar como Ana e como o motorista `100001` e concluir uma corrida nova.
+- **O que aconteceu:** a Ana abria direto numa corrida, e o motorista também. Aceitar na tela dele não mudava a corrida que ela estava vendo. No MySQL havia 668 corridas `REQUESTED`, quase todas do k6, e uma `IN_PROGRESS` do `driver-a`. A passageira retoma a mais recente. A lista do motorista oferecia a mais antiga.
+- **Como investiguei:** `GROUP BY status` no MySQL e um fluxo pela API. Depois de cancelar as corridas abertas e limpar as chaves `ride:*:status` no Redis, a Ana entrou sem corrida. A corrida `f78dd0bc-98be-4b8b-bb08-93df5c52e594` foi aceita pelo `driver-a` e o GET dela passou a `ACCEPTED`, depois `COMPLETED`.
+- **Aprendizado/decisão:** a oferta do motorista passa a vir da corrida pedida mais recente, a mesma que a tela da passageira retoma. As 668 corridas abertas foram canceladas para a demonstração recomeçar limpa.
+
 ## Observação
 
 Uma linha por ocorrência é suficiente. O valor deste documento está em mostrar evidências do processo de investigação, inclusive erros e decisões revertidas.

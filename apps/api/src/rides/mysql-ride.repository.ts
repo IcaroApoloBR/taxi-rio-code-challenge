@@ -75,7 +75,7 @@ export class MysqlRideRepository extends RideRepository {
   async listOpen(): Promise<Ride[]> {
     const [rows] = await this.database
       .executor()
-      .query<RideRow[]>(`SELECT ${rideColumns} FROM rides WHERE status = 'REQUESTED' ORDER BY created_at ASC`, []);
+      .query<RideRow[]>(`SELECT ${rideColumns} FROM rides WHERE status = 'REQUESTED' ORDER BY created_at DESC`, []);
     return rows.map(toRide);
   }
 

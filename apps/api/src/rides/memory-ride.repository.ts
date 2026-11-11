@@ -26,7 +26,7 @@ export class MemoryRideRepository extends RideRepository {
   async listOpen(): Promise<Ride[]> {
     return [...this.rides.values()]
       .filter((ride) => ride.status === 'REQUESTED')
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .map(clone);
   }
 
